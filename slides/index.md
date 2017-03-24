@@ -1,164 +1,195 @@
-- title : FsReveal
-- description : Introduction to FsReveal
-- author : Karlkim Suwanmongkol
-- theme : night
+- title : Websocket Injection into a Fable-Elmish WebApp
+- description : Using websockets in a Fable-Elmish app to allow for external event injection
+- author : Justin Sacks
+- theme : blood
 - transition : default
 
 ***
 
-### What is FsReveal?
+### WebSocket Injection into a Fable-Elmish WebApp
 
-- Generates [reveal.js](http://lab.hakim.se/reveal-js/#/) presentation from [markdown](http://daringfireball.net/projects/markdown/)
-- Utilizes [FSharp.Formatting](https://github.com/tpetricek/FSharp.Formatting) for markdown parsing
-- Get it from [http://fsprojects.github.io/FsReveal/](http://fsprojects.github.io/FsReveal/)
+<img style="border: none; height:2em; box-shadow:none;" src="images/Prolucid.png" alt="Prolucid logo" />
 
-![FsReveal](images/logo.png)
+<br/>
 
-***
-
-### Reveal.js
-
-- A framework for easily creating beautiful presentations using HTML.
-
-
-> **Atwood's Law**: any application that can be written in JavaScript, will eventually be written in JavaScript.
+Justin Sacks
 
 ***
 
-### FSharp.Formatting
+### WebSocket Injection into a Fable-Elmish WebApp
 
-- F# tools for generating documentation (Markdown processor and F# code formatter).
-- It parses markdown and F# script file and generates HTML or PDF.
-- Code syntax highlighting support.
-- It also evaluates your F# code and produce tooltips.
+- Traditional Events
+- Subscription Events
+- WebSockets
+- Examples
 
 ***
 
-### Syntax Highlighting
+### Traditional Events
 
-#### F# (with tooltips)
-
-    let a = 5
-    let factorial x = [1..x] |> List.reduce (*)
-    let c = factorial a
+- Dispatch originates from view 
+  - e.g. button click
+- Subsequent side-effect messages can cascade
 
 ---
 
-#### C#
+### Traditional Events
 
-    [lang=cs]
-    using System;
+#### Dispatch from view
 
-    class Program
-    {
-        static void Main()
-        {
-            Console.WriteLine("Hello, world!");
-        }
-    }
+    let view model dispatch =
+        R.div [] [
+            R.button [ OnClick (fun _ -> dispatch Msg1) ] [ unbox "Click Me" ]
+        ]
 
----
+#### Side-effect
 
-#### JavaScript
+    let update (msg:Msg) model =
+        match msg with
+        | Msg1 -> model, Cmd.ofMsg Msg2
+        | Msg2 -> ...
 
-    [lang=js]
-    function copyWithEvaluation(iElem, elem) {
-        return function (obj) {
-            var newObj = {};
-            for (var p in obj) {
-                var v = obj[p];
-                if (typeof v === "function") {
-                    v = v(iElem, elem);
-                }
-                newObj[p] = v;
-            }
-            if (!newObj.exactTiming) {
-                newObj.delay += exports._libraryDelay;
-            }
-            return newObj;
-        };
-    }
+***
 
+### Subscription Events
+
+- Result of external event
+  - e.g. timer
+- `Program.withSubscription` allows subscriptions to call dispatch when they need to
 
 ---
 
-#### Haskell
- 
-    [lang=haskell]
-    recur_count k = 1 : 1 : 
-        zipWith recurAdd (recur_count k) (tail (recur_count k))
-            where recurAdd x y = k * x + y
+### Subscription Events
+    let timerTick dispatch =
+        let timer = new System.Timers.Timer 1000.
+        timer.Elapsed.Subscribe (fun _ -> dispatch Msg1) |> ignore
+        timer.Enabled <- true
 
-    main = do
-      argv <- getArgs
-      inputFile <- openFile (head argv) ReadMode
-      line <- hGetLine inputFile
-      let [n,k] = map read (words line)
-      printf "%d\n" ((recur_count k) !! (n-1))
+    let subscribe model = Cmd.ofSub timerTick
 
-*code from [NashFP/rosalind](https://github.com/NashFP/rosalind/blob/master/mark_wutka%2Bhaskell/FIB/fib_ziplist.hs)*
+    Program.mkProgram init update view
+    |> Program.withSubscription subscribe
+    |> Program.withReact "elmish-app"
+    |> Program.run
 
----
+***
 
-### SQL
+### WebSockets
 
-    [lang=sql]
-    select *
-    from
-    (select 1 as Id union all select 2 union all select 3) as X
-    where Id in (@Ids1, @Ids2, @Ids3)
-
-*sql from [Dapper](https://code.google.com/p/dapper-dot-net/)*
+- Standardized by IETF as RFC 6455
+- Describes persistent connection between client (including but not limited to browser) and server
+- Bidirectional
+- Event-driven
 
 ---
 
-### Paket
+### WebSockets (Client)
 
-    [lang=paket]
-    source https://nuget.org/api/v2
+#### Fable Bindings
 
-    nuget Castle.Windsor-log4net >= 3.2
-    nuget NUnit
+    type [<AllowNullLiteral>] WebSocket =
+        ...
+        abstract onmessage: Func<MessageEvent, obj> with get, set
+
+    type [<AllowNullLiteral>] WebSocketType =
+        ...
+        [<Emit("new $0($1...)")>] abstract Create: 
+            url: string * ?protocols: U2<string, ResizeArray<string>> 
+            -> WebSocket
+
+---
+
+### WebSockets (Client)
+    // Shared messages between server and client
+    type WsMessage =
+        | SomethingHappened of string
+
+    let ws = WebSocket.Create("ws://" + window.location.hostname + ":8080")
+
+    let onMessage dispatch =
+        fun (msg: MessageEvent) ->
+            let msg' = msg.data |> string |> ofJson<WsMessage>
+            // Dispatch a local client message
+            match msg' with
+            | SomethingHappened e -> dispatch <| Msg1(e)
+
+    let wsCallbacks dispatch =
+        ws.onmessage <- unbox (onMessage dispatch)
     
-    github forki/FsUnit FsUnit.fs
-      
+    let subscribe model = Cmd.ofSub wsCallbacks
+
 ---
 
-### C/AL
+### WebSockets (Server)
 
-    [lang=cal]
-    PROCEDURE FizzBuzz(n : Integer) r_Text : Text[1024];
-    VAR
-      l_Text : Text[1024];
-    BEGIN
-      r_Text := '';
-      l_Text := FORMAT(n);
-
-      IF (n MOD 3 = 0) OR (STRPOS(l_Text,'3') > 0) THEN
-        r_Text := 'Fizz';
-      IF (n MOD 5 = 0) OR (STRPOS(l_Text,'5') > 0) THEN
-        r_Text := r_Text + 'Buzz';
-      IF r_Text = '' THEN
-        r_Text := l_Text;
-    END;
+- Can't use browser implementation
+- Many server-specific implementations available
+- fable-elmish sample (counter-ws)
+  - Uses `fable-import-ws`
+  - NodeJS (Express) server written in F#!
 
 ***
 
-**Bayes' Rule in LaTeX**
+### Examples
 
-$ \Pr(A|B)=\frac{\Pr(B|A)\Pr(A)}{\Pr(B|A)\Pr(A)+\Pr(B|\neg A)\Pr(\neg A)} $
+- Counter-ws
+- Circle War
+
+---
+
+### Examples - Counter-ws
+
+- Modified version of fable-elmish counter sample
+- Server counts for you
+
+---
+
+### Examples - Circle War
+
+- Click to create your own circles and destroy other players' circles
+- Server keeps track of players and circles
+- Broadcasts state changes to all clients
+
+---
+
+### Examples - Circle War
+
+#### Shared messages
+    
+    type PlayerId = int
+    type WsMessage =
+        | IdPlayer of pid:PlayerId
+        | PlayerJoined of pid:PlayerId
+        | PlayerLeft of pid:PlayerId
+        | DeleteCircle of pid:PlayerId * x:float * y:float
+        | AddCircle of pid:PlayerId * x:float * y:float
+
+---
+
+### Examples - Circle War
+
+<img style="border: none; box-shadow:none" src="images/CircleWar.png" alt="Sequence diagram" />
+
+---
+
+### Examples - Circle War
+
+#### Client message handling
+
+    // Local client messages
+    type Msg =
+        ...
+        | Send of WsMessage
+        | Rcv of WsMessage
+
+    let onMessage dispatch =
+        fun (msg: MessageEvent) ->
+            msg.data |> string |> ofJson |> Rcv |> dispatch
+
+    let send msg = toJson msg |> ws.send
 
 ***
 
-### The Reality of a Developer's Life 
+### Questions
 
-**When I show my boss that I've fixed a bug:**
-  
-![When I show my boss that I've fixed a bug](http://www.topito.com/wp-content/uploads/2013/01/code-07.gif)
-  
-**When your regular expression returns what you expect:**
-  
-![When your regular expression returns what you expect](http://www.topito.com/wp-content/uploads/2013/01/code-03.gif)
-  
-*from [The Reality of a Developer's Life - in GIFs, Of Course](http://server.dzone.com/articles/reality-developers-life-gifs)*
-
+?
