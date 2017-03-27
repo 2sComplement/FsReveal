@@ -18,10 +18,33 @@ Justin Sacks
 
 ### WebSocket Injection into a Fable-Elmish WebApp
 
+- Fable-Elmish Recap
 - Traditional Events
 - Subscription Events
 - WebSockets
 - Examples
+
+***
+
+### Fable-Elmish
+
+    type Model = { text: string }
+
+    type Msg =
+        | SetText of string
+
+    let init = { text = "Hello world" }
+
+    let update (msg:Msg) model =
+        match msg with
+        | SetText str -> { model with text = str }, Cmd.none
+
+    let view model dispatch =
+        R.div [] [ unbox model.text ]
+        
+    Program.mkProgram init update view
+    |> Program.withReact "elmish-app"
+    |> Program.run
 
 ***
 
@@ -104,14 +127,14 @@ Justin Sacks
     type WsMessage =
         | SomethingHappened of string
 
-    let ws = WebSocket.Create("ws://" + window.location.hostname + ":8080")
-
     let onMessage dispatch =
         fun (msg: MessageEvent) ->
             let msg' = msg.data |> string |> ofJson<WsMessage>
             // Dispatch a local client message
             match msg' with
-            | SomethingHappened e -> dispatch <| Msg1(e)
+            | SomethingHappened e -> Msg1(e) |> dispatch
+
+    let ws = WebSocket.Create("ws://" + window.location.hostname + ":8080")
 
     let wsCallbacks dispatch =
         ws.onmessage <- unbox (onMessage dispatch)
@@ -133,7 +156,9 @@ Justin Sacks
 ### Examples
 
 - Counter-ws
+  - https://github.com/fable-compiler/fable-elmish
 - Circle War
+  - https://github.com/2sComplement/circle-war
 
 ---
 
@@ -157,12 +182,32 @@ Justin Sacks
 #### Shared messages
     
     type PlayerId = int
+    type Coordinate = float * float
+    type PlayerCircles = Map<PlayerId,Coordinate array>
     type WsMessage =
         | IdPlayer of pid:PlayerId
         | PlayerJoined of pid:PlayerId
         | PlayerLeft of pid:PlayerId
         | DeleteCircle of pid:PlayerId * x:float * y:float
         | AddCircle of pid:PlayerId * x:float * y:float
+
+---
+
+### Examples - Circle War
+
+#### Client model
+
+    type Model =
+        { connected: bool
+          playerId: PlayerId option
+          otherPlayers: PlayerId list
+          circles: PlayerCircles }
+
+    // Local client messages
+    type Msg =
+        ...
+        | Send of WsMessage
+        | Rcv of WsMessage
 
 ---
 
@@ -176,17 +221,34 @@ Justin Sacks
 
 #### Client message handling
 
-    // Local client messages
-    type Msg =
-        ...
-        | Send of WsMessage
-        | Rcv of WsMessage
-
     let onMessage dispatch =
         fun (msg: MessageEvent) ->
             msg.data |> string |> ofJson |> Rcv |> dispatch
 
-    let send msg = toJson msg |> ws.send
+    let onOpen dispatch = fun _ -> Connected true |> dispatch
+    let onClose dispatch = fun _ -> Connected false |> dispatch
+
+    let wsCallbacks dispatch =
+        ws.onmessage <- unbox (onMessage dispatch)
+        ws.onopen <- unbox (onOpen dispatch)
+        ws.onclose <- unbox (onClose dispatch)
+
+    let subscribe model = Cmd.ofSub wsCallbacks
+
+---
+
+### Examples - Circle War
+
+#### Client message handling
+    let update (msg:Msg) model =
+        match msg with
+        ...
+        | Connected c -> { model with connected = c }, Cmd.none
+        | Rcv (IdPlayer pid) -> { model with playerId = Some pid }, Cmd.none
+        | Rcv (PlayerJoined pid) -> { model with otherPlayers = model.otherPlayers |> List.append [ pid ] |> List.distinct}, Cmd.none 
+        | Rcv (PlayerLeft pid) -> { model with otherPlayers = model.otherPlayers |> List.except [ pid ]}, Cmd.none 
+        | Rcv (AddCircle(pid,x,y)) -> { model with circles = model.circles |> addCircle(pid,x,y) }, Cmd.none
+        | Rcv (DeleteCircle(pid,x,y)) -> { model with circles = model.circles |> Map.map (fun p coords -> if pid = p then coords |> Array.except [x,y] else coords) }, Cmd.none
 
 ***
 
